@@ -66,7 +66,7 @@ jobs:
       - name: Destroy Terragrunt modules in order
         run: |
           set -e
-          order=("cloud-nat" "gke-cluster" "static-ip" "gcs" "firewall" "network")
+          order=("gke-cluster" "firewall" "network")
           for module in "${order[@]}"; do
             echo "🔥 Destroying $module..."
             cd live/dev/$module
