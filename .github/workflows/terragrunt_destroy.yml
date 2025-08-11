@@ -1,75 +1,58 @@
-name: Terragrunt Destroy from GCS State (Ordered)
+name: Terraform Destroy with Terragrunt (Remote State in GCS)
 
 on:
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch:
 
 jobs:
-  terragrunt-destroy:
+  terraform-destroy:
+    name: Destroy Infra with Remote State
     runs-on: ubuntu-latest
     env:
       GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
       GOOGLE_REGION: ${{ secrets.GCP_REGION }}
-      GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
-      BUCKET_NAME: og-strom
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/gcp-key.json
+      GCS_BUCKET_NAME: tf-remote-state-${{ secrets.GCP_PROJECT_ID }}
 
     steps:
-      # 1. Checkout repo
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 2. Authenticate to GCP
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set gcloud project & region
+      - name: Authenticate to GCP
         run: |
+          echo "${{ secrets.GCP_SA_KEY }}" > $GOOGLE_APPLICATION_CREDENTIALS
+          gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
           gcloud config set project $GOOGLE_PROJECT
           gcloud config set compute/region $GOOGLE_REGION
 
-      # 3. Install Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.7.5
-
-      # 4. Install Terragrunt
-      - name: Install Terragrunt
+      - name: Ensure GCS Bucket for Terraform State
         run: |
-          TG_VERSION="0.84.1"
-          wget https://github.com/gruntwork-io/terragrunt/releases/download/v${TG_VERSION}/terragrunt_linux_amd64
-          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-          sudo chmod +x /usr/local/bin/terragrunt
-
-      # 5. Check GCS state before destroy
-      - name: Check if state files exist
-        id: check_state
-        run: |
-          modules=( "gke-cluster" "firewall" "network")
-          missing=0
-          for module in "${modules[@]}"; do
-            echo "Checking $module state..."
-            if ! gsutil ls gs://$BUCKET_NAME/dev/$module/terraform.tfstate >/dev/null 2>&1; then
-              echo "❌ No state found for $module"
-              missing=1
-            else
-              echo "✅ State found for $module"
-            fi
-          done
-          if [ "$missing" -eq 1 ]; then
-            echo "Some state files missing. Skipping destroy."
-            exit 0
+          if ! gsutil ls -b gs://$GCS_BUCKET_NAME >/dev/null 2>&1; then
+            echo "Creating GCS bucket: $GCS_BUCKET_NAME"
+            gsutil mb -p $GOOGLE_PROJECT -l $GOOGLE_REGION gs://$GCS_BUCKET_NAME
+          else
+            echo "GCS bucket $GCS_BUCKET_NAME already exists."
           fi
 
-      # 6. Destroy modules in reverse dependency order
-      - name: Destroy Terragrunt modules in order
+      - name: Install Terraform & Terragrunt
         run: |
-          set -e
-          order=("gke-cluster" "firewall" "network")
-          for module in "${order[@]}"; do
-            echo "🔥 Destroying $module..."
-            cd live/dev/$module
-            terragrunt destroy -auto-approve || true
-            cd ../../../
-          done
+          sudo apt-get update -y
+          sudo apt-get install -y unzip wget
+          wget https://releases.hashicorp.com/terraform/1.9.5/terraform_1.9.5_linux_amd64.zip
+          unzip terraform_1.9.5_linux_amd64.zip
+          sudo mv terraform /usr/local/bin/
+          wget https://github.com/gruntwork-io/terragrunt/releases/download/v0.67.4/terragrunt_linux_amd64
+          chmod +x terragrunt_linux_amd64
+          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+
+      - name: Destroy GKE Cluster
+        working-directory: live/dev/gke-cluster
+        run: terragrunt destroy --auto-approve
+
+      - name: Destroy Firewall
+        working-directory: live/dev/firewall
+        run: terragrunt destroy --auto-approve
+
+      - name: Destroy Network
+        working-directory: live/dev/network
+        run: terragrunt destroy --auto-approve
+
