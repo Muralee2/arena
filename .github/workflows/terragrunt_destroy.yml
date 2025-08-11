@@ -46,7 +46,7 @@ jobs:
       - name: Check if state files exist
         id: check_state
         run: |
-          modules=("cloud-nat" "gke-cluster" "static-ip" "gcs" "firewall" "network")
+          modules=( "gke-cluster" "firewall" "network")
           missing=0
           for module in "${modules[@]}"; do
             echo "Checking $module state..."
