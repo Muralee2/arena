@@ -1,58 +1,34 @@
-name: Terraform Destroy with Terragrunt (Remote State in GCS)
+name: Terraform Destroy with Terragrunt
 
 on:
   workflow_dispatch:
 
 jobs:
   terraform-destroy:
-    name: Destroy Infra with Remote State
     runs-on: ubuntu-latest
     env:
       GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
       GOOGLE_REGION: ${{ secrets.GCP_REGION }}
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/gcp-key.json
-      GCS_BUCKET_NAME: tf-remote-state-${{ secrets.GCP_PROJECT_ID }}
+      GCS_BUCKET: my-terraform-state-bucket   # <-- Your bucket name here
+      TERRAGRUNT_TFPATH: terraform
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Destroy Resources (Firewalls, GKE, Network)
         run: |
-          echo "${{ secrets.GCP_SA_KEY }}" > $GOOGLE_APPLICATION_CREDENTIALS
-          gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
-          gcloud config set project $GOOGLE_PROJECT
-          gcloud config set compute/region $GOOGLE_REGION
-
-      - name: Ensure GCS Bucket for Terraform State
-        run: |
-          if ! gsutil ls -b gs://$GCS_BUCKET_NAME >/dev/null 2>&1; then
-            echo "Creating GCS bucket: $GCS_BUCKET_NAME"
-            gsutil mb -p $GOOGLE_PROJECT -l $GOOGLE_REGION gs://$GCS_BUCKET_NAME
-          else
-            echo "GCS bucket $GCS_BUCKET_NAME already exists."
-          fi
-
-      - name: Install Terraform & Terragrunt
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y unzip wget
-          wget https://releases.hashicorp.com/terraform/1.9.5/terraform_1.9.5_linux_amd64.zip
-          unzip terraform_1.9.5_linux_amd64.zip
-          sudo mv terraform /usr/local/bin/
-          wget https://github.com/gruntwork-io/terragrunt/releases/download/v0.67.4/terragrunt_linux_amd64
-          chmod +x terragrunt_linux_amd64
-          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-
-      - name: Destroy GKE Cluster
-        working-directory: live/dev/gke-cluster
-        run: terragrunt destroy --auto-approve
-
-      - name: Destroy Firewall
-        working-directory: live/dev/firewall
-        run: terragrunt destroy --auto-approve
-
-      - name: Destroy Network
-        working-directory: live/dev/network
-        run: terragrunt destroy --auto-approve
-
+          for dir in firewall gke-cluster network; do
+            echo "Destroying resources in $dir..."
+            cd $dir
+            terragrunt destroy \
+              --terragrunt-non-interactive \
+              --auto-approve \
+              --terragrunt-override-attr bucket=$GCS_BUCKET
+            cd ..
+          done
