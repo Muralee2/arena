@@ -9,7 +9,7 @@ jobs:
     env:
       GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
       GOOGLE_REGION: ${{ secrets.GCP_REGION }}
-      GCS_BUCKET: my-terraform-state-bucket   # <-- Your bucket name here
+      GCS_BUCKET:  ${{ secrets.GCS_BUCKET_NAME }}   # <-- Your bucket name here
       TERRAGRUNT_TFPATH: terraform
 
     steps:
