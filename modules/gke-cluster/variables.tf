@@ -25,7 +25,7 @@ variable "node_count" {
 
 variable "disk_size_gb" {
   type    = number
-  default = 30
+  default = 15
 }
 
 variable "disk_type" {
