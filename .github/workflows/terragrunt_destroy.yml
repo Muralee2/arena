@@ -1,7 +1,7 @@
 name: Terragrunt Destroy from GCS State
 
 on:
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch:
 
 jobs:
   terraform-destroy:
@@ -27,13 +27,7 @@ jobs:
           curl -Lo terraform.zip https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip
           unzip terraform.zip && sudo mv terraform /usr/local/bin/
 
-      - name: Destroy all components from GCS state
+      - name: Destroy all resources (dependency aware)
         run: |
           cd live/dev
-          for dir in firewall network gke-cluster; do
-            echo "Destroying resources in $dir..."
-            cd $dir
-            terragrunt destroy -auto-approve
-            cd ..
-          done
-
+          terragrunt run-all destroy --auto-approve --parallelism 1
