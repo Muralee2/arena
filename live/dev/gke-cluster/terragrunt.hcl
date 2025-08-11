@@ -42,7 +42,7 @@ inputs = {
       min_count    = 1
       max_count    = 2
       disk_size_gb = 10
-       # Use standard persistent disk (HDD) to avoid SSD quota limits
+      disk_type    = "pd-standard" # <- explicitly set to HDD
     }
   ]
 }
