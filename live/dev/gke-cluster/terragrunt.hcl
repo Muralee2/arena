@@ -41,7 +41,7 @@ inputs = {
       node_count   = 1
       min_count    = 1
       max_count    = 2
-      disk_size_gb = 50
+      disk_size_gb = 15
       disk_type    = "pd-standard" # <- explicitly set to HDD
     }
   ]
