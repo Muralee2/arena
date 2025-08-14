@@ -1,8 +1,8 @@
 locals {
   project_id   = "silver-tape-467818-r9"
   region       = "us-east1"
-  network_name = "dev-vpc9"
-  subnet_name  = "dev-subnet18"
+  network_name = "dev-vpc-new"
+  subnet_name  = "dev-subnet-new"
   subnet_cidr  = "10.0.0.0/23"
   cluster_name = "power3"
 }
