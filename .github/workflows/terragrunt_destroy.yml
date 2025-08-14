@@ -27,10 +27,9 @@ jobs:
           curl -Lo terraform.zip https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip
           unzip terraform.zip && sudo mv terraform /usr/local/bin/
 
-      - name: Destroy all Terragrunt components (reverse dependency order)
+      - name: Destroy all components from GCS state
         run: |
           cd live/dev
           terragrunt run-all destroy \
             --terragrunt-non-interactive \
-            --terragrunt-include-dir . \
             -auto-approve
