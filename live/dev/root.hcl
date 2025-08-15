@@ -1,5 +1,5 @@
 locals {
-  project_id   = "silver-tape-467818-r9"
+  project_id   = "my-project-og-469112"
   region       = "us-east1"
   network_name = "dev-vpc-new"
   subnet_name  = "dev-subnet-new"
@@ -19,7 +19,7 @@ inputs = {
 remote_state {
   backend = "gcs"
   config = {
-    bucket   = "og-strom"
+    bucket   = "ojas-gambheera"
     prefix   = "${path_relative_to_include()}"
     project  = local.project_id
     location = "US"
