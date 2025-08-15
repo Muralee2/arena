@@ -54,7 +54,7 @@ jobs:
 
       - name: Wait for subnet to be ready
         run: |
-         RETRIES=10
+         RETRIES=40
          while ! gcloud compute networks subnets describe dev-subnet8 --region=$GOOGLE_REGION --project=$GOOGLE_PROJECT &> /dev/null; do
          echo "Waiting for subnet to be ready..."
          sleep 15
