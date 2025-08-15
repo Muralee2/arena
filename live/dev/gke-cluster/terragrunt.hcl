@@ -11,7 +11,7 @@ locals {
 }
 
 dependencies {
-  paths = ["../network"]
+  paths = ["../network" , "../firewall"]
 }
 
 inputs = {
