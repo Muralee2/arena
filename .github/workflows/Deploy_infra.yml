@@ -1,7 +1,7 @@
 name: Terraform CI with Terragrunt
 
 on:
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch:
 
 jobs:
   terraform:
@@ -25,6 +25,16 @@ jobs:
           gcloud config set project $GOOGLE_PROJECT
           gcloud config set compute/region $GOOGLE_REGION
 
+      - name: Enable required GCP APIs
+        run: |
+          gcloud services enable \
+            compute.googleapis.com \
+            container.googleapis.com \
+            servicenetworking.googleapis.com \
+            dns.googleapis.com \
+            iam.googleapis.com \
+            cloudresourcemanager.googleapis.com
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -40,33 +50,31 @@ jobs:
       - name: Terragrunt Apply - Network
         run: terragrunt apply --auto-approve --non-interactive --working-dir=live/dev/network
 
-      - name: Wait after Network creation
-        run: sleep 30
+      - name: Wait for subnet to be READY
+        run: |
+          RETRIES=40
+          while true; do
+            STATUS=$(gcloud compute networks subnets describe dev-subnet8 \
+              --region="$GOOGLE_REGION" \
+              --project="$GOOGLE_PROJECT" \
+              --format="get(status)" || echo "MISSING")
 
-      - name: Terragrunt Init - Firewall
-        run: terragrunt init --non-interactive --working-dir=live/dev/firewall
+            if [ "$STATUS" = "READY" ]; then
+              echo "✅ Subnet is READY"
+              break
+            fi
+
+            echo "⏳ Waiting for subnet to be ready... (status: $STATUS)"
+            sleep 15
+            RETRIES=$((RETRIES-1))
+            if [ $RETRIES -eq 0 ]; then
+              echo "❌ Subnet not ready after waiting"
+              exit 1
+            fi
+          done
 
       - name: Terragrunt Apply - Firewall
         run: terragrunt apply --auto-approve --non-interactive --working-dir=live/dev/firewall
 
-      - name: Wait after Firewall creation
-        run: sleep 30
-
-      - name: Wait for subnet to be ready
-        run: |
-         RETRIES=40
-         while ! gcloud compute networks subnets describe dev-subnet8 --region=$GOOGLE_REGION --project=$GOOGLE_PROJECT &> /dev/null; do
-         echo "Waiting for subnet to be ready..."
-         sleep 15
-         RETRIES=$((RETRIES-1))
-         if [ $RETRIES -eq 0 ]; then
-         echo "Subnet not ready after waiting"
-         exit 1
-         fi
-         done
-
-      - name: Terragrunt Init gke-cluster
-        run: terragrunt init --non-interactive --working-dir=live/dev/gke-cluster
-
-      - name: Terragrunt Apply gke-cluster
+      - name: Terragrunt Apply - GKE Cluster
         run: terragrunt apply --auto-approve --non-interactive --working-dir=live/dev/gke-cluster
