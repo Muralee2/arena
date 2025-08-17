@@ -4,7 +4,6 @@ output "network_name" {
 
 output "subnet_name" {
   value      = google_compute_subnetwork.subnet.name
-  depends_on = [time_sleep.wait_for_subnet]   # ✅ works now because resource exists
 }
 
 output "project_id" {
