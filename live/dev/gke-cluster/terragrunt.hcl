@@ -18,9 +18,7 @@ dependency "network" {
   config_path = "../network"
 }
 
-dependency "firewall" {
-  config_path = "../firewall"
-}
+
 
 inputs = {
   project_id   = local.parent_config.inputs.project_id
