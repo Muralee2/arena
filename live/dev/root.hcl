@@ -4,6 +4,7 @@ locals {
   network_name = "dev-vpc-new"
   subnet_name  = "dev-subnet-new"
   subnet_cidr  = "10.0.0.0/23"
+  subnet_region = "us-east1"
   cluster_name = "power3"
 }
 
