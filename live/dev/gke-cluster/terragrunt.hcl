@@ -11,19 +11,25 @@ locals {
 }
 
 dependencies {
-  paths = ["../network" , "../firewall"]
+  paths = ["../network", "../firewall"]
 }
 
 dependency "network" {
   config_path = "../network"
 }
 
+dependency "firewall" {
+  config_path = "../firewall"
+}
+
 inputs = {
-  project_id         = local.parent_config.inputs.project_id
-  name               = local.parent_config.inputs.cluster_name
-  region             = local.parent_config.inputs.region
-  network_name       = local.parent_config.inputs.network_name
-  subnet_name        = local.parent_config.inputs.subnet_name
+  project_id   = local.parent_config.inputs.project_id
+  name         = local.parent_config.inputs.cluster_name
+  region       = local.parent_config.inputs.region
+
+  # ✅ Use dependency outputs instead of locals
+  network_name = dependency.network.outputs.network_name
+  subnet_name  = dependency.network.outputs.subnet_name
 
   remove_default_node_pool = true
 
@@ -37,7 +43,6 @@ inputs = {
 
   master_ipv4_cidr_block = "172.16.0.0/28"
 
-  # Node pool config
   node_pools = [
     {
       name         = "default-node-pool"
@@ -46,7 +51,7 @@ inputs = {
       min_count    = 1
       max_count    = 2
       disk_size_gb = 15
-      disk_type    = "pd-standard" # <- explicitly set to HDD
+      disk_type    = "pd-standard"
     }
   ]
 }
