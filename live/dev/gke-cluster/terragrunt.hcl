@@ -14,6 +14,10 @@ dependencies {
   paths = ["../network" , "../firewall"]
 }
 
+dependency "network" {
+  config_path = "../network"
+}
+
 inputs = {
   project_id         = local.parent_config.inputs.project_id
   name               = local.parent_config.inputs.cluster_name
