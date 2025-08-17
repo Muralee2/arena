@@ -50,23 +50,18 @@ jobs:
       - name: Terragrunt Apply - Network
         run: terragrunt apply --auto-approve --non-interactive --working-dir=live/dev/network
 
-      - name: Wait for subnet to exist and be READY
+      - name: Wait for subnet to exist
         run: |
          SUBNET_NAME=$(terragrunt output -raw subnet_name --working-dir=live/dev/network)
          echo "Checking subnet: $SUBNET_NAME"
 
          RETRIES=40
          while true; do
-         STATUS=$(gcloud compute networks subnets describe "$SUBNET_NAME" \
-          --region="$GOOGLE_REGION" \
-          --project="$GOOGLE_PROJECT" \
-          --format="get(status)" 2>/dev/null || echo "MISSING")
-
-         if [ "$STATUS" = "READY" ]; then
-         echo "✅ Subnet is READY"
+         if gcloud compute networks subnets describe "$SUBNET_NAME" \
+         --region="$GOOGLE_REGION" \
+         --project="$GOOGLE_PROJECT" >/dev/null 2>&1; then
+         echo "✅ Subnet exists and is ready to use"
          break
-         elif [ "$STATUS" != "MISSING" ]; then
-         echo "⏳ Subnet exists but status is: $STATUS"
          else
          echo "⏳ Subnet not found yet..."
          fi
@@ -74,10 +69,11 @@ jobs:
          sleep 15
          RETRIES=$((RETRIES-1))
          if [ $RETRIES -eq 0 ]; then
-         echo "❌ Subnet not ready after waiting"
+         echo "❌ Subnet not found after waiting"
          exit 1
          fi
          done
+
 
       - name: Terragrunt Apply - Firewall
         run: terragrunt apply --auto-approve --non-interactive --working-dir=live/dev/firewall
