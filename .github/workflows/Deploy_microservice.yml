@@ -6,7 +6,8 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
-  STATIC_IP_REGION: ${{ secrets.GKE_STATIC_IP_REGION }} # e.g., us-central1
+  CLUSTER_REGION: ${{ secrets.GKE_CLUSTER_REGION }}
+  STATIC_IP_REGION: ${{ secrets.GKE_STATIC_IP_REGION }}
   STATIC_IP_NAME: ${{ secrets.GKE_STATIC_IP_NAME }}
   RELEASE_NAME: microservice
   NAMESPACE: default
@@ -39,14 +40,14 @@ jobs:
         gcloud components install gke-gcloud-auth-plugin --quiet
         echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
 
-    # 5. Get GKE credentials
+    # 5. Get GKE credentials (REGIONAL cluster)
     - name: Get GKE Credentials
       run: |
-       gcloud container clusters get-credentials $CLUSTER_NAME \
-       --region $STATIC_IP_REGION \
-       --project $PROJECT_ID
+        gcloud container clusters get-credentials $CLUSTER_NAME \
+          --region $CLUSTER_REGION \
+          --project $PROJECT_ID
 
-    # 6. Fetch Static IP from the correct region
+    # 6. Fetch Static IP from correct region
     - name: Get Static IP Address
       id: get-ip
       run: |
@@ -102,3 +103,4 @@ jobs:
         echo "📜 Listing resources:"
         kubectl get pods,svc,ingress -n $NAMESPACE
         echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
+
