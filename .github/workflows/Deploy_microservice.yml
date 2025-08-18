@@ -6,7 +6,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
-  STATIC_IP_REGION: ${{ secrets.GKE_STATIC_IP_REGION }} # e.g., us-central1
+  CLUSTER_LOCATION: ${{ secrets.GKE_STATIC_IP_REGION }}   # works if cluster + IP in same region
   STATIC_IP_NAME: ${{ secrets.GKE_STATIC_IP_NAME }}
   RELEASE_NAME: microservice
   NAMESPACE: default
@@ -39,22 +39,25 @@ jobs:
         gcloud components install gke-gcloud-auth-plugin --quiet
         echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
 
-    # 5. Get GKE credentials
+    # 5. Get GKE credentials (try regional, fallback to zonal)
     - name: Get GKE Credentials
       run: |
-       gcloud container clusters get-credentials $CLUSTER_NAME \
-       --region $STATIC_IP_REGION \
-       --project $PROJECT_ID
+        echo "⏳ Fetching GKE credentials..."
+        if ! gcloud container clusters get-credentials $CLUSTER_NAME --region $CLUSTER_LOCATION --project $PROJECT_ID; then
+          echo "⚠️ Cluster not regional, trying zonal..."
+          gcloud container clusters get-credentials $CLUSTER_NAME --zone $CLUSTER_LOCATION --project $PROJECT_ID
+        fi
 
-    # 6. Fetch Static IP from the correct region
+    # 6. Fetch Static IP
     - name: Get Static IP Address
       id: get-ip
       run: |
+        echo "⏳ Fetching static IP..."
         IP_ADDRESS=$(gcloud compute addresses describe $STATIC_IP_NAME \
-          --region $STATIC_IP_REGION \
-          --format="value(address)")
+          --region $CLUSTER_LOCATION \
+          --format="value(address)" || true)
         if [ -z "$IP_ADDRESS" ]; then
-          echo "❌ ERROR: Static IP not found in region $STATIC_IP_REGION"
+          echo "❌ ERROR: Static IP $STATIC_IP_NAME not found in $CLUSTER_LOCATION"
           exit 1
         fi
         echo "STATIC_IP=$IP_ADDRESS" >> $GITHUB_ENV
@@ -78,7 +81,7 @@ jobs:
     # 9. Wait for ingress-nginx to be ready
     - name: Wait for ingress-nginx to be ready
       run: |
-        echo "⏳ Waiting for ingress-nginx controller to be ready..."
+        echo "⏳ Waiting for ingress-nginx controller..."
         kubectl rollout status deployment/ingress-nginx-controller \
           -n ingress-nginx --timeout=180s
 
@@ -94,10 +97,10 @@ jobs:
           --set ingress.hosts[0].paths[0].path="/" \
           --set ingress.hosts[0].paths[0].pathType=Prefix
 
-    # 11. Verify deployment
+    # 11. Verify Deployment
     - name: Verify Deployment
       run: |
-        echo "⏳ Waiting for pods to be ready..."
+        echo "⏳ Waiting for pods..."
         kubectl rollout status deployment/$RELEASE_NAME -n $NAMESPACE --timeout=120s
         echo "📜 Listing resources:"
         kubectl get pods,svc,ingress -n $NAMESPACE
