@@ -10,7 +10,7 @@ jobs:
     env:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       CLUSTER_NAME: power3
-      CLUSTER_REGION: us-east1
+      CLUSTER_REGION: us-east1   # ✅ must match actual region
       RELEASE_NAME: microservice
       NAMESPACE: dev
       STATIC_IP: ${{ secrets.GCP_STATIC_IP }}
@@ -32,7 +32,13 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      # 4. Get cluster credentials (✅ regional)
+      # 4. Install GKE auth plugin (🔥 Fix for your error)
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          echo "🔧 Installing gke-gcloud-auth-plugin..."
+          gcloud components install gke-gcloud-auth-plugin --quiet
+
+      # 5. Get cluster credentials (✅ regional cluster)
       - name: Get GKE credentials
         run: |
           echo "⏳ Fetching GKE credentials for regional cluster..."
@@ -40,13 +46,13 @@ jobs:
             --region "$CLUSTER_REGION" \
             --project "$PROJECT_ID"
 
-      # 5. Setup kubectl + helm
+      # 6. Setup kubectl + helm
       - name: Set up Kubernetes tools
         uses: azure/setup-kubectl@v4
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
-      # 6. Deploy Microservice via Helm
+      # 7. Deploy Microservice via Helm
       - name: Deploy Microservice via Helm
         run: |
           helm upgrade --install "$RELEASE_NAME" ./helm/microservice \
@@ -58,7 +64,7 @@ jobs:
             --set ingress.hosts[0].paths[0].path="/" \
             --set ingress.hosts[0].paths[0].pathType=Prefix
 
-      # 7. Verify deployment
+      # 8. Verify deployment
       - name: Verify Deployment
         run: |
           echo "⏳ Waiting for pods to be ready..."
@@ -66,5 +72,4 @@ jobs:
           echo "📜 Listing resources:"
           kubectl get pods,svc,ingress -n "$NAMESPACE"
           echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
-
 
