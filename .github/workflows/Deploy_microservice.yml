@@ -6,8 +6,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
-  CLUSTER_REGION: ${{ secrets.GKE_CLUSTER_REGION }} # <-- actual GKE region
-  STATIC_IP_REGION: ${{ secrets.GKE_STATIC_IP_REGION }} # region where static IP exists
+  STATIC_IP_REGION: ${{ secrets.GKE_STATIC_IP_REGION }} # e.g., us-central1
   STATIC_IP_NAME: ${{ secrets.GKE_STATIC_IP_NAME }}
   RELEASE_NAME: microservice
   NAMESPACE: default
@@ -40,13 +39,12 @@ jobs:
         gcloud components install gke-gcloud-auth-plugin --quiet
         echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
 
-    # 5. Get GKE credentials (fix: use CLUSTER_REGION)
+    # 5. Get GKE credentials
     - name: Get GKE Credentials
       run: |
-        echo "⏳ Fetching GKE credentials for regional cluster..."
-        gcloud container clusters get-credentials $CLUSTER_NAME \
-          --region $CLUSTER_REGION \
-          --project $PROJECT_ID
+       gcloud container clusters get-credentials $CLUSTER_NAME \
+       --region $STATIC_IP_REGION \
+       --project $PROJECT_ID
 
     # 6. Fetch Static IP from the correct region
     - name: Get Static IP Address
