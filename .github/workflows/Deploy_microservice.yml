@@ -1,4 +1,4 @@
-name: Deploy Microservice to GKE
+name: Deploy Microservice to GKE (Regional)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
-  CLUSTER_REGION: ${{ secrets.GKE_CLUSTER_REGION }}   # <-- regional cluster
+  CLUSTER_REGION: ${{ secrets.GKE_CLUSTER_REGION }}   # Regional cluster
   STATIC_IP_NAME: ${{ secrets.GKE_STATIC_IP_NAME }}
   RELEASE_NAME: microservice
   NAMESPACE: default
@@ -39,7 +39,7 @@ jobs:
         gcloud components install gke-gcloud-auth-plugin --quiet
         echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
 
-    # 5. Get GKE credentials (regional)
+    # 5. Get GKE credentials (regional cluster)
     - name: Get GKE Credentials
       run: |
         echo "⏳ Fetching GKE credentials for regional cluster..."
@@ -54,6 +54,7 @@ jobs:
         echo "⏳ Fetching static IP..."
         IP_ADDRESS=$(gcloud compute addresses describe $STATIC_IP_NAME \
           --region $CLUSTER_REGION \
+          --project $PROJECT_ID \
           --format="value(address)" || true)
         if [ -z "$IP_ADDRESS" ]; then
           echo "❌ ERROR: Static IP $STATIC_IP_NAME not found"
@@ -82,7 +83,7 @@ jobs:
       run: |
         echo "⏳ Waiting for ingress-nginx controller..."
         kubectl rollout status deployment/ingress-nginx-controller \
-          -n ingress-nginx --timeout=180s
+          -n ingress-nginx --timeout=300s
 
     # 10. Deploy Microservice via Helm
     - name: Deploy Microservice via Helm
@@ -100,8 +101,5 @@ jobs:
     - name: Verify Deployment
       run: |
         echo "⏳ Waiting for pods..."
-        kubectl rollout status deployment/$RELEASE_NAME -n $NAMESPACE --timeout=120s
-        echo "📜 Listing resources:"
-        kubectl get pods,svc,ingress -n $NAMESPACE
-        echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
+        kubectl rollout status deployment/$RELEASE_NAME -n $NAMESPACE --tim_
 
