@@ -6,7 +6,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
-  CLUSTER_LOCATION: ${{ secrets.GKE_STATIC_IP_REGION }}   # works if cluster + IP in same region
+  CLUSTER_ZONE: ${{ secrets.GKE_CLUSTER_ZONE }}     # <-- zonal cluster, so use zone instead of region
   STATIC_IP_NAME: ${{ secrets.GKE_STATIC_IP_NAME }}
   RELEASE_NAME: microservice
   NAMESPACE: default
@@ -39,14 +39,13 @@ jobs:
         gcloud components install gke-gcloud-auth-plugin --quiet
         echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
 
-    # 5. Get GKE credentials (try regional, fallback to zonal)
+    # 5. Get GKE credentials (zonal)
     - name: Get GKE Credentials
       run: |
-        echo "⏳ Fetching GKE credentials..."
-        if ! gcloud container clusters get-credentials $CLUSTER_NAME --region $CLUSTER_LOCATION --project $PROJECT_ID; then
-          echo "⚠️ Cluster not regional, trying zonal..."
-          gcloud container clusters get-credentials $CLUSTER_NAME --zone $CLUSTER_LOCATION --project $PROJECT_ID
-        fi
+        echo "⏳ Fetching GKE credentials for zonal cluster..."
+        gcloud container clusters get-credentials $CLUSTER_NAME \
+          --zone $CLUSTER_ZONE \
+          --project $PROJECT_ID
 
     # 6. Fetch Static IP
     - name: Get Static IP Address
@@ -54,10 +53,10 @@ jobs:
       run: |
         echo "⏳ Fetching static IP..."
         IP_ADDRESS=$(gcloud compute addresses describe $STATIC_IP_NAME \
-          --region $CLUSTER_LOCATION \
+          --region $(echo $CLUSTER_ZONE | sed 's/-[a-z]$//') \
           --format="value(address)" || true)
         if [ -z "$IP_ADDRESS" ]; then
-          echo "❌ ERROR: Static IP $STATIC_IP_NAME not found in $CLUSTER_LOCATION"
+          echo "❌ ERROR: Static IP $STATIC_IP_NAME not found"
           exit 1
         fi
         echo "STATIC_IP=$IP_ADDRESS" >> $GITHUB_ENV
