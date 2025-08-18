@@ -14,3 +14,7 @@ output "subnet_region" {
   value = google_compute_subnetwork.subnet.region
 }
 
+output "region" {
+  value = var.region
+  description = "Region where the subnet is created"
+}
