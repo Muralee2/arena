@@ -67,11 +67,8 @@ jobs:
       # 8. Verify deployment
       - name: Verify Deployment
         run: |
-          echo "⏳ Waiting for pods to be ready..."
-          kubectl rollout status deployment/"$RELEASE_NAME" -n "$NAMESPACE" --timeout=180s
-          
-          echo "📜 Listing resources:"
-          kubectl get pods,svc,ingress -n "$NAMESPACE"
-
-          echo "🌐 Test URL: http://${{ env.STATIC_IP }}.nip.io"
-
+         echo "⏳ Waiting for pods to be ready..."
+         kubectl rollout status deployment/$RELEASE_NAME -n $NAMESPACE --timeout=120s
+         echo "📜 Listing resources:"
+         kubectl get pods,svc,ingress -n $NAMESPACE
+         echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
