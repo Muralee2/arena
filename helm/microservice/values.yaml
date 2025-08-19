@@ -13,3 +13,5 @@ ingress:
   className: nginx
   hostname: "" # will be set via nip.io or workflow
   path: /
+annotations:
+  kubernetes.io/ingress.global-static-ip-name: gke-static-ip
