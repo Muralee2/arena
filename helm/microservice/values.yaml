@@ -6,10 +6,35 @@ image:
   pullPolicy: IfNotPresent
 
 service:
+  type: ClusterIP
   port: 80
 
 ingress:
   enabled: true
   className: nginx
-  hostname: "" # will be set via nip.io or workflow
+  hosts:
+    - host: "34.55.65.167.nip.io"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []   # can be filled later with cert-manager if needed
+
+resources: {}
+
+livenessProbe:
   path: /
+  port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  path: /
+  port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 2
+  failureThreshold: 3
+  successThreshold: 1
