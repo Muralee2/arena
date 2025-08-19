@@ -1,6 +1,6 @@
 apiVersion: v2
 name: microservice
-description: A sample microservice Helm chart with readiness and liveness probes
+description: A simple microservice Helm chart with health checks
 type: application
 version: 0.1.0
-appVersion: "1.0.0"
+appVersion: "1.0"
