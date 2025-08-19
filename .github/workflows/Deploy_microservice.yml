@@ -46,11 +46,11 @@ jobs:
             --region "$CLUSTER_REGION" \
             --project "$PROJECT_ID"
 
-      # 6. Setup kubectl + helm
-      - name: Set up Kubernetes tools
-        uses: azure/setup-kubectl@v4
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
+      - name: Wait for ingress-nginx to be ready
+        run: |
+         echo "⏳ Waiting for ingress-nginx controller to be ready..."
+         kubectl rollout status deployment/ingress-nginx-controller \
+         -n ingress-nginx --timeout=180s
 
       # 7. Deploy Microservice via Helm
       - name: Deploy Microservice via Helm
