@@ -10,10 +10,9 @@ jobs:
     env:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       CLUSTER_NAME: power3
-      CLUSTER_REGION: us-east1   # ✅ must match actual region
+      CLUSTER_REGION: us-east1
       RELEASE_NAME: microservice
       NAMESPACE: dev
-      STATIC_IP: ${{ secrets.GCP_STATIC_IP }}
 
     steps:
       # 1. Checkout repo
@@ -32,16 +31,16 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      # 4. Install GKE auth plugin (🔥 Fix for your error)
+      # 4. Install GKE auth plugin
       - name: Install gke-gcloud-auth-plugin
         run: |
           echo "🔧 Installing gke-gcloud-auth-plugin..."
           gcloud components install gke-gcloud-auth-plugin --quiet
 
-      # 5. Get cluster credentials (✅ regional cluster)
+      # 5. Get cluster credentials
       - name: Get GKE credentials
         run: |
-          echo "⏳ Fetching GKE credentials for regional cluster..."
+          echo "⏳ Fetching GKE credentials..."
           gcloud container clusters get-credentials "$CLUSTER_NAME" \
             --region "$CLUSTER_REGION" \
             --project "$PROJECT_ID"
@@ -60,7 +59,7 @@ jobs:
             --create-namespace \
             --set ingress.enabled=true \
             --set ingress.className=nginx \
-            --set ingress.hosts[0].host="${STATIC_IP}.nip.io" \
+            --set ingress.hosts[0].host="placeholder.nip.io" \
             --set ingress.hosts[0].paths[0].path="/" \
             --set ingress.hosts[0].paths[0].pathType=Prefix
 
@@ -71,5 +70,22 @@ jobs:
           kubectl rollout status deployment/"$RELEASE_NAME" -n "$NAMESPACE" --timeout=180s
           echo "📜 Listing resources:"
           kubectl get pods,svc,ingress -n "$NAMESPACE"
-          echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
+
+      # 9. Get Ingress External IP + Print Test URL
+      - name: Get Ingress External IP
+        run: |
+          echo "⏳ Waiting for ingress external IP..."
+          for i in {1..30}; do
+            INGRESS_IP=$(kubectl get ingress "$RELEASE_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [ -n "$INGRESS_IP" ]; then
+              echo "✅ Ingress IP assigned: $INGRESS_IP"
+              echo "🌐 Test URL: http://$INGRESS_IP.nip.io"
+              exit 0
+            fi
+            echo "⌛ Still waiting for ingress IP... ($i/30)"
+            sleep 10
+          done
+          echo "❌ Ingress external IP was not assigned in time"
+          exit 1
+"
 
