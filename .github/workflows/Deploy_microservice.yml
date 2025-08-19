@@ -63,7 +63,7 @@ jobs:
             --set ingress.hosts[0].paths[0].path="/" \
             --set ingress.hosts[0].paths[0].pathType=Prefix
 
-      # 8. Verify deployment
+      # 8. Verify deployment rollout
       - name: Verify Deployment
         run: |
           echo "⏳ Waiting for pods to be ready..."
@@ -71,15 +71,16 @@ jobs:
           echo "📜 Listing resources:"
           kubectl get pods,svc,ingress -n "$NAMESPACE"
 
-      # 9. Get Ingress External IP + Print Test URL
+      # 9. Get Ingress External IP and publish Test URL
       - name: Get Ingress External IP
+        id: ingress
         run: |
           echo "⏳ Waiting for ingress external IP..."
           for i in {1..30}; do
             INGRESS_IP=$(kubectl get ingress "$RELEASE_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
             if [ -n "$INGRESS_IP" ]; then
               echo "✅ Ingress IP assigned: $INGRESS_IP"
-              echo "🌐 Test URL: http://$INGRESS_IP.nip.io"
+              echo "url=http://$INGRESS_IP.nip.io" >> $GITHUB_OUTPUT
               exit 0
             fi
             echo "⌛ Still waiting for ingress IP... ($i/30)"
@@ -87,5 +88,10 @@ jobs:
           done
           echo "❌ Ingress external IP was not assigned in time"
           exit 1
-"
+
+      # 10. Add summary with final Test URL
+      - name: Publish Test URL Summary
+        run: |
+          echo "### 🚀 Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "✅ App is available at: [${{ steps.ingress.outputs.url }}](${{ steps.ingress.outputs.url }})" >> $GITHUB_STEP_SUMMARY
 
