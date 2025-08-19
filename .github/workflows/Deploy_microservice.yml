@@ -5,12 +5,11 @@ on:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
-  STATIC_IP_REGION: ${{ secrets.GKE_STATIC_IP_REGION }} # e.g., us-central1
-  STATIC_IP_NAME: ${{ secrets.GKE_STATIC_IP_NAME }}
-  RELEASE_NAME: microservice
-  NAMESPACE: default
-
+      CLUSTER_NAME: power3
+      CLUSTER_REGION: us-east1   # ✅ must match actual region
+      RELEASE_NAME: microservice
+      NAMESPACE: dev
+      STATIC_IP: ${{ secrets.GCP_STATIC_IP }}
 jobs:
   deploy:
     runs-on: ubuntu-latest
