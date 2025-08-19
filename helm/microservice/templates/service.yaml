@@ -12,4 +12,5 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: {{ include "microservice.name" . }}
+    app.kubernetes.io/name: {{ include "microservice.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
