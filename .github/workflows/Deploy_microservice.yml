@@ -1,74 +1,104 @@
-name: Deploy to GKE
+name: Deploy Microservice to GKE
 
 on:
   workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
+  STATIC_IP_REGION: ${{ secrets.GKE_STATIC_IP_REGION }} # e.g., us-central1
+  STATIC_IP_NAME: ${{ secrets.GKE_STATIC_IP_NAME }}
+  RELEASE_NAME: microservice
+  NAMESPACE: default
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    env:
-      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      CLUSTER_NAME: power3
-      CLUSTER_REGION: us-east1   # ✅ must match actual region
-      RELEASE_NAME: microservice
-      NAMESPACE: dev
-      STATIC_IP: ${{ secrets.GCP_STATIC_IP }}
-
     steps:
-      # 1. Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # 1. Checkout repo
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      # 2. Authenticate to GCP
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+    # 2. Authenticate to Google Cloud
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GKE_SA_KEY }}
 
-      # 3. Setup gcloud SDK
-      - name: Set up gcloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
+    # 3. Set up gcloud CLI
+    - name: Set up gcloud CLI
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+        export_default_credentials: true
 
-      # 4. Install GKE auth plugin (🔥 required for kubectl)
-      - name: Install gke-gcloud-auth-plugin
-        run: |
-          echo "🔧 Installing gke-gcloud-auth-plugin..."
-          gcloud components install gke-gcloud-auth-plugin --quiet
+    # 4. Install GKE gcloud auth plugin
+    - name: Install GKE gcloud auth plugin
+      run: |
+        gcloud components install gke-gcloud-auth-plugin --quiet
+        echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
 
-      # 5. Get cluster credentials (✅ for regional cluster)
-      - name: Get GKE credentials
-        run: |
-          echo "⏳ Fetching GKE credentials..."
-          gcloud container clusters get-credentials "$CLUSTER_NAME" \
-            --region "$CLUSTER_REGION" \
-            --project "$PROJECT_ID"
+    # 5. Get GKE credentials
+    - name: Get GKE Credentials
+      run: |
+       gcloud container clusters get-credentials $CLUSTER_NAME \
+       --region $STATIC_IP_REGION \
+       --project $PROJECT_ID
 
-      - name: Wait for ingress-nginx to be ready
-        run: |
-         echo "⏳ Waiting for ingress-nginx controller to be ready..."
-         kubectl rollout status deployment/ingress-nginx-controller \
-         -n ingress-nginx --timeout=180s
+    # 6. Fetch Static IP from the correct region
+    - name: Get Static IP Address
+      id: get-ip
+      run: |
+        IP_ADDRESS=$(gcloud compute addresses describe $STATIC_IP_NAME \
+          --region $STATIC_IP_REGION \
+          --format="value(address)")
+        if [ -z "$IP_ADDRESS" ]; then
+          echo "❌ ERROR: Static IP not found in region $STATIC_IP_REGION"
+          exit 1
+        fi
+        echo "STATIC_IP=$IP_ADDRESS" >> $GITHUB_ENV
+        echo "✅ Using Static IP: $IP_ADDRESS"
 
-      # 7. Deploy Microservice via Helm
-      - name: Deploy Microservice via Helm
-        run: |
-         helm upgrade --install $RELEASE_NAME ./helm/microservice \
-           --namespace $NAMESPACE \
-           --create-namespace \
-           --set ingress.enabled=true \
-           --set ingress.className=nginx \
-           --set ingress.hosts[0].host=${STATIC_IP}.nip.io \
-           --set ingress.hosts[0].paths[0].path="/" \
-           --set ingress.hosts[0].paths[0].pathType=Prefix
+    # 7. Install Helm
+    - name: Install Helm
+      uses: azure/setup-helm@v4
 
-      # 8. Verify deployment
-      - name: Verify Deployment
-        run: |
-         echo "⏳ Waiting for pods to be ready..."
-         kubectl rollout status deployment/$RELEASE_NAME -n $NAMESPACE --timeout=120s
-         echo "📜 Listing resources:"
-         kubectl get pods,svc,ingress -n $NAMESPACE
-         echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
+    # 8. Install ingress-nginx with Static IP
+    - name: Install ingress-nginx with Static IP
+      run: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+        helm repo update
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --create-namespace \
+          --set controller.service.loadBalancerIP=${STATIC_IP} \
+          --set controller.service.annotations."networking\.gke\.io/load-balancer-type"="External"
+
+    # 9. Wait for ingress-nginx to be ready
+    - name: Wait for ingress-nginx to be ready
+      run: |
+        echo "⏳ Waiting for ingress-nginx controller to be ready..."
+        kubectl rollout status deployment/ingress-nginx-controller \
+          -n ingress-nginx --timeout=180s
+
+    # 10. Deploy Microservice via Helm
+    - name: Deploy Microservice via Helm
+      run: |
+        helm upgrade --install $RELEASE_NAME ./helm/microservice \
+          --namespace $NAMESPACE \
+          --create-namespace \
+          --set ingress.enabled=true \
+          --set ingress.className=nginx \
+          --set ingress.hosts[0].host=${STATIC_IP}.nip.io \
+          --set ingress.hosts[0].paths[0].path="/" \
+          --set ingress.hosts[0].paths[0].pathType=Prefix
+
+    # 11. Verify deployment
+    - name: Verify Deployment
+      run: |
+        echo "⏳ Waiting for pods to be ready..."
+        kubectl rollout status deployment/$RELEASE_NAME -n $NAMESPACE --timeout=120s
+        echo "📜 Listing resources:"
+        kubectl get pods,svc,ingress -n $NAMESPACE
+        echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
