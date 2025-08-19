@@ -32,16 +32,16 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      # 4. Install GKE auth plugin (🔥 Fix for your error)
+      # 4. Install GKE auth plugin (🔥 required for kubectl)
       - name: Install gke-gcloud-auth-plugin
         run: |
           echo "🔧 Installing gke-gcloud-auth-plugin..."
           gcloud components install gke-gcloud-auth-plugin --quiet
 
-      # 5. Get cluster credentials (✅ regional cluster)
+      # 5. Get cluster credentials (✅ for regional cluster)
       - name: Get GKE credentials
         run: |
-          echo "⏳ Fetching GKE credentials for regional cluster..."
+          echo "⏳ Fetching GKE credentials..."
           gcloud container clusters get-credentials "$CLUSTER_NAME" \
             --region "$CLUSTER_REGION" \
             --project "$PROJECT_ID"
@@ -69,6 +69,9 @@ jobs:
         run: |
           echo "⏳ Waiting for pods to be ready..."
           kubectl rollout status deployment/"$RELEASE_NAME" -n "$NAMESPACE" --timeout=180s
+          
           echo "📜 Listing resources:"
           kubectl get pods,svc,ingress -n "$NAMESPACE"
-          echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
+
+          echo "🌐 Test URL: http://${{ env.STATIC_IP }}.nip.io"
+
