@@ -1,67 +1,77 @@
 name: Deploy Microservice to GKE
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
+  CLUSTER_REGION: ${{ secrets.GKE_CLUSTER_REGION }}     # regional cluster
+  RELEASE_NAME: microservice
+  NAMESPACE: default
+  STATIC_IP: ${{ secrets.GKE_STATIC_IP }}             # optional, can be empty
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    env:
-      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      CLUSTER_NAME: power3
-      CLUSTER_REGION: us-east1
-      RELEASE_NAME: microservice
-      NAMESPACE: dev
-      STATIC_IP: ${{ secrets.GCP_STATIC_IP }}   # <-- store the actual IP in GitHub secrets
-
     steps:
+      # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Authenticate to GCP
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: ${{ secrets.GKE_SA_KEY }}
 
-      - name: Set up gcloud
+      # 3️⃣ Setup gcloud SDK
+      - name: Set up gcloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ env.PROJECT_ID }}
-          install_components: gke-gcloud-auth-plugin
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          export_default_credentials: true
 
+      # 4️⃣ Install GKE auth plugin (fix kubectl helm credential issue)
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin --quiet
+          echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
+
+      # 5️⃣ Get GKE credentials
       - name: Get GKE credentials
         run: |
-          gcloud container clusters get-credentials $CLUSTER_NAME \
-            --region $CLUSTER_REGION \
-            --project $PROJECT_ID
+          echo "⏳ Fetching credentials for GKE cluster $CLUSTER_NAME..."
+          gcloud container clusters get-credentials "$CLUSTER_NAME" \
+            --region "$CLUSTER_REGION" \
+            --project "$PROJECT_ID"
 
-      - name: Create namespace if not exists
-        run: |
-          kubectl get ns $NAMESPACE || kubectl create ns $NAMESPACE
+      # 6️⃣ Install kubectl + Helm
+      - name: Set up Kubernetes tools
+        uses: azure/setup-kubectl@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
 
-      - name: Deploy with Helm
+      # 7️⃣ Deploy microservice via Helm
+      - name: Deploy Microservice via Helm
         run: |
+          echo "⏳ Deploying microservice Helm chart..."
           helm upgrade --install "$RELEASE_NAME" ./helm/microservice \
             --namespace "$NAMESPACE" \
-            --set ingress.hosts[0].host="${STATIC_IP}.nip.io"
+            --create-namespace \
+            --set ingress.enabled=true \
+            --set ingress.className=nginx \
+            --set ingress.hosts[0].host="${STATIC_IP}.nip.io" \
+            --set ingress.hosts[0].paths[0].path="/" \
+            --set ingress.hosts[0].paths[0].pathType=Prefix
 
-      - name: Wait for rollout
+      # 8️⃣ Verify deployment
+      - name: Verify Deployment
         run: |
           echo "⏳ Waiting for pods to be ready..."
-          kubectl rollout status deployment/$RELEASE_NAME -n $NAMESPACE
-
-      - name: List resources
-        run: |
+          kubectl rollout status deployment/"$RELEASE_NAME" -n "$NAMESPACE" --timeout=180s
           echo "📜 Listing resources:"
-          kubectl get pods -n $NAMESPACE
-          echo ""
-          kubectl get svc -n $NAMESPACE
-          echo ""
-          kubectl get ingress -n $NAMESPACE
-          echo ""
+          kubectl get pods,svc,ingress -n "$NAMESPACE"
           echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
 
