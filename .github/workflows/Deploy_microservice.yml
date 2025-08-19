@@ -1,99 +1,72 @@
-name: GKE Microservice Deployment
+name: Terraform CI with Terragrunt
 
 on:
-  push:
-    branches: ["main"]
-  workflow_dispatch:
-
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: ${{ secrets.GCP_REGION }}
-  CLUSTER_NAME: ${{ secrets.GCP_GKE_CLUSTER }}
-  STATIC_IP_NAME: ${{ secrets.GCP_STATIC_IP_NAME }}
-  STATIC_IP_REGION: ${{ secrets.GCP_STATIC_IP_REGION }}
+  workflow_dispatch: # Manual trigger only
 
 jobs:
-  deploy:
+  terraform:
+    name: Terragrunt Deploy
     runs-on: ubuntu-latest
+    env:
+      GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+      GOOGLE_REGION: ${{ secrets.GCP_REGION }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
+      - name: Set gcloud project and region
+        run: |
+          gcloud config set project $GOOGLE_PROJECT
+          gcloud config set compute/region $GOOGLE_REGION
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          project_id: ${{ env.PROJECT_ID }}
+          terraform_version: 1.7.5
 
-      - name: Verify gcloud auth
-        run: gcloud auth list
-
-      # 👇 Reserve or fetch Static IP
-      - name: Reserve or fetch static IP
+      - name: Install Terragrunt
         run: |
-          if [ -z "$STATIC_IP_NAME" ]; then
-            echo "❌ ERROR: GCP_STATIC_IP_NAME secret is missing"
-            exit 1
-          fi
+          TG_VERSION="0.84.1"
+          wget https://github.com/gruntwork-io/terragrunt/releases/download/v${TG_VERSION}/terragrunt_linux_amd64
+          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+          sudo chmod +x /usr/local/bin/terragrunt
 
-          if ! gcloud compute addresses describe "$STATIC_IP_NAME" \
-            --region="$STATIC_IP_REGION" \
-            --project="$PROJECT_ID" >/dev/null 2>&1; then
-            echo "⚡ Reserving new static IP: $STATIC_IP_NAME"
-            gcloud compute addresses create "$STATIC_IP_NAME" \
-              --region="$STATIC_IP_REGION" \
-              --project="$PROJECT_ID"
-          else
-            echo "✅ Static IP $STATIC_IP_NAME already exists"
-          fi
+      - name: Terragrunt Apply - Network
+        run: terragrunt apply --auto-approve --non-interactive --working-dir=live/dev/network
 
-          IP_ADDRESS=$(gcloud compute addresses describe "$STATIC_IP_NAME" \
-            --region="$STATIC_IP_REGION" \
-            --project="$PROJECT_ID" \
-            --format="value(address)")
+      - name: Wait after Network creation
+        run: sleep 30
 
-          echo "STATIC_IP=$IP_ADDRESS" >> $GITHUB_ENV
-          echo "✅ Using static IP: $IP_ADDRESS"
+      - name: Terragrunt Init - Firewall
+        run: terragrunt init --non-interactive --working-dir=live/dev/firewall
 
-      # 👇 Terraform init/plan/apply
-      - name: Terraform Init
-        run: terraform -chdir=terraform init
+      - name: Terragrunt Apply - Firewall
+        run: terragrunt apply --auto-approve --non-interactive --working-dir=live/dev/firewall
 
-      - name: Terraform Plan
-        run: terraform -chdir=terraform plan -out=tfplan
+      - name: Wait after Firewall creation
+        run: sleep 30
 
-      - name: Terraform Apply
-        run: terraform -chdir=terraform apply -auto-approve tfplan
-
-      # 👇 Get GKE credentials
-      - name: Get GKE credentials
+      - name: Wait for subnet to be ready
         run: |
-          gcloud container clusters get-credentials "$CLUSTER_NAME" \
-            --region "$REGION" \
-            --project "$PROJECT_ID"
+         RETRIES=10
+         while ! gcloud compute networks subnets describe dev-subnet --region=$GOOGLE_REGION --project=$GOOGLE_PROJECT &> /dev/null; do
+         echo "Waiting for subnet to be ready..."
+         sleep 15
+         RETRIES=$((RETRIES-1))
+         if [ $RETRIES -eq 0 ]; then
+         echo "Subnet not ready after waiting"
+         exit 1
+         fi
+         done
 
-      # 👇 Install Helm
-      - name: Setup Helm
-        uses: azure/setup-helm@v3
+      - name: Terragrunt Init gke-cluster
+        run: terragrunt init --non-interactive --working-dir=live/dev/gke-cluster
 
-      # 👇 Deploy microservice with Helm using static IP
-      - name: Deploy microservice with Helm
-        run: |
-          helm upgrade --install microservice ./helm/microservice \
-            --set ingress.hosts[0].host=${STATIC_IP}.nip.io \
-            --set ingress.hosts[0].paths[0].path="/" \
-            --set ingress.hosts[0].paths[0].pathType=Prefix
-
-      # 👇 Verify rollout
-      - name: Verify rollout
-        run: |
-          echo "⏳ Waiting for pods to be ready..."
-          kubectl rollout status deployment/microservice --timeout=120s
-          echo "📜 Listing resources:"
-          kubectl get all
-          echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
+      - name: Terragrunt Apply gke-cluster
+        run: terragrunt apply --auto-approve --non-interactive --working-dir=live/dev/gke-cluster
