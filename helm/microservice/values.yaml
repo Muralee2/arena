@@ -1,8 +1,8 @@
-replicaCount: 1
+replicaCount: 2
 
 image:
   repository: nginx
-  tag: latest
+  tag: "1.25.2"
   pullPolicy: IfNotPresent
 
 service:
@@ -11,30 +11,24 @@ service:
 
 ingress:
   enabled: true
-  className: nginx
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/ingress.global-static-ip-name: "my-og-ip"   # set your static IP name
   hosts:
-    - host: "34.55.65.167.nip.io"
+    - host: "microservice.example.com"
       paths:
         - path: /
           pathType: Prefix
-  tls: []   # can be filled later with cert-manager if needed
+  tls: [] # example if you later enable cert-manager
+  # - secretName: microservice-tls
+  #   hosts:
+  #     - microservice.example.com
 
 resources: {}
 
-livenessProbe:
-  path: /
-  port: http
-  initialDelaySeconds: 10
-  periodSeconds: 10
-  timeoutSeconds: 2
-  failureThreshold: 3
-  successThreshold: 1
+nodeSelector: {}
 
-readinessProbe:
-  path: /
-  port: http
-  initialDelaySeconds: 5
-  periodSeconds: 5
-  timeoutSeconds: 2
-  failureThreshold: 3
-  successThreshold: 1
+tolerations: []
+
+affinity: {}
