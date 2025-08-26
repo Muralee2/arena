@@ -1,134 +1,111 @@
 name: Deploy Microservice to GKE
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME }}
-  STATIC_IP_NAME: ${{ secrets.GKE_STATIC_IP_NAME }}
-  STATIC_IP_REGION: ${{ secrets.GKE_STATIC_IP_REGION }}
-  RELEASE_NAME: microservice
-  NAMESPACE: default
+  CLUSTER_LOCATION: ${{ secrets.GCP_REGION }}
+  STATIC_IP_NAME: ${{ secrets.GCP_STATIC_IP_NAME }}
+  SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SA_KEY }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Authenticate to GCP
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      # 3. Set up gcloud SDK
-      - name: Set up gcloud SDK
+      - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ env.PROJECT_ID }}
-          export_default_credentials: true
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      # 4. Install GKE gcloud auth plugin
-      - name: Install gke-gcloud-auth-plugin
+      - name: Get GKE credentials
         run: |
-          gcloud components install gke-gcloud-auth-plugin --quiet
-          echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
-
-      # 5. Debug: Verify secrets & env variables
-      - name: Debug environment values
-        run: |
-          echo "🔹 PROJECT_ID: $PROJECT_ID"
-          echo "🔹 CLUSTER_NAME: $CLUSTER_NAME"
-          echo "🔹 STATIC_IP_NAME: $STATIC_IP_NAME"
-          echo "🔹 STATIC_IP_REGION: $STATIC_IP_REGION"
-
-      # 6. Debug: list clusters visible to the SA
-      - name: List GKE clusters (debug)
-        run: |
-          echo "🔍 Listing clusters in project $PROJECT_ID"
-          gcloud container clusters list --project "$PROJECT_ID" || true
-
-      # 7. Auto-detect cluster location & get credentials
-      - name: Auto-detect cluster & get credentials
-        run: |
-          echo "⏳ Looking for cluster $CLUSTER_NAME in project $PROJECT_ID..."
-          CLUSTER_INFO=$(gcloud container clusters list \
-            --project "$PROJECT_ID" \
-            --filter="name=$CLUSTER_NAME" \
-            --format="value(name,location)")
-          if [ -z "$CLUSTER_INFO" ]; then
-            echo "❌ ERROR: Cluster '$CLUSTER_NAME' not found in project '$PROJECT_ID'"
-            exit 1
-          fi
-          CLUSTER_LOCATION=$(echo "$CLUSTER_INFO" | awk '{print $2}')
-          echo "✅ Found cluster '$CLUSTER_NAME' in '$CLUSTER_LOCATION'"
+          echo "Fetching GKE credentials..."
           gcloud container clusters get-credentials "$CLUSTER_NAME" \
             --region "$CLUSTER_LOCATION" \
             --project "$PROJECT_ID"
 
-      # 8. Get Static IP Address
-      - name: Get Static IP Address
-        id: get-ip
+      - name: Validate static IP & fetch its address
         run: |
-          echo "⏳ Fetching static IP $STATIC_IP_NAME in region $STATIC_IP_REGION"
-          IP_ADDRESS=$(gcloud compute addresses describe "$STATIC_IP_NAME" \
-            --region "$STATIC_IP_REGION" \
+          echo "Validating static IP $STATIC_IP_NAME in region $CLUSTER_LOCATION"
+          export STATIC_IP=$(gcloud compute addresses describe "$STATIC_IP_NAME" \
+            --region "$CLUSTER_LOCATION" \
+            --project "$PROJECT_ID" \
             --format="value(address)")
-          if [ -z "$IP_ADDRESS" ]; then
-            echo "❌ ERROR: Static IP $STATIC_IP_NAME not found in $STATIC_IP_REGION"
+          if [ -z "$STATIC_IP" ]; then
+            echo "❌ Static IP $STATIC_IP_NAME not found in region $CLUSTER_LOCATION"
             exit 1
           fi
-          echo "STATIC_IP=$IP_ADDRESS" >> $GITHUB_ENV
-          echo "✅ Using Static IP: $IP_ADDRESS"
+          echo "STATIC_IP=$STATIC_IP" >> $GITHUB_ENV
+          echo "✅ Using static IP: $STATIC_IP"
 
-      # 9. Setup kubectl and Helm
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
+      - name: Check Cluster VPC & Subnet
+        run: |
+          echo "Checking cluster network configuration..."
+          gcloud container clusters describe "$CLUSTER_NAME" \
+            --region "$CLUSTER_LOCATION" \
+            --project "$PROJECT_ID" \
+            --format="value(networkConfig.network,networkConfig.subnetwork)"
 
-      # 10. Deploy ingress-nginx with static IP
+      - name: Ensure Firewall Rules for LB Health Checks
+        run: |
+          VPC_NAME=$(gcloud container clusters describe "$CLUSTER_NAME" \
+            --region "$CLUSTER_LOCATION" \
+            --project "$PROJECT_ID" \
+            --format="value(networkConfig.network)")
+          echo "Detected VPC: $VPC_NAME"
+          gcloud compute firewall-rules create allow-gke-lb-healthcheck \
+            --network $VPC_NAME \
+            --allow tcp:80,tcp:443,tcp:10256 \
+            --source-ranges 35.191.0.0/16,130.211.0.0/22 \
+            --project "$PROJECT_ID" || true
+
       - name: Install ingress-nginx with static IP
         run: |
+          echo "Installing ingress-nginx using Helm..."
           helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
           helm repo update
           helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
             --namespace ingress-nginx \
             --create-namespace \
             --set controller.service.loadBalancerIP=${STATIC_IP} \
-            --set controller.service.annotations."networking\.gke\.io/load-balancer-type"="External"
+            --set controller.service.annotations."networking\.gke\.io/load-balancer-type"="External" \
+            --set controller.publishService.enabled=true \
+            --wait --timeout 10m0s
 
-      # 11. Wait for ingress-nginx to be ready
-      - name: Wait for ingress-nginx
+      - name: Deploy microservice using Helm
         run: |
-          echo "⏳ Waiting for ingress-nginx to be ready..."
-          kubectl rollout status deployment/ingress-nginx-controller \
-            -n ingress-nginx --timeout=180s
-
-      # 12. Deploy Microservice via Helm
-      - name: Deploy Microservice via Helm
-        run: |
-          helm upgrade --install "$RELEASE_NAME" ./helm/microservice \
-            --namespace "$NAMESPACE" \
+          echo "Deploying microservice..."
+          helm upgrade --install microservice ./helm/microservice \
+            --namespace microservice \
             --create-namespace \
-            --set ingress.enabled=true \
-            --set ingress.className=nginx \
-            --set ingress.hosts[0].host="${STATIC_IP}.nip.io" \
-            --set ingress.hosts[0].paths[0].path="/" \
-            --set ingress.hosts[0].paths[0].pathType=Prefix
+            --wait --timeout 10m0s
 
-      # 13. Verify deployment
-      - name: Verify Deployment
+      - name: Debug on Failure
+        if: failure()
         run: |
-          echo "⏳ Waiting for pods to be ready..."
-          kubectl rollout status deployment/"$RELEASE_NAME" -n "$NAMESPACE" --timeout=180s
-          echo "📜 Listing resources:"
-          kubectl get pods,svc,ingress -n "$NAMESPACE"
-          echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
+          echo "❌ Deployment failed. Printing debug logs..."
+          kubectl get pods -A -o wide || true
+          kubectl describe svc ingress-nginx-controller -n ingress-nginx || true
+          kubectl describe pod -n ingress-nginx | tail -n 50 || true
+          kubectl get events -A --sort-by=.metadata.creationTimestamp | tail -n 50 || true
 
+      - name: Deployment Success
+        if: success()
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "Access your service via: http://${STATIC_IP}"
 
