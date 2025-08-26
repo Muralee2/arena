@@ -130,5 +130,5 @@ jobs:
           echo "📜 Listing resources:"
           kubectl get pods,svc,ingress -n "$NAMESPACE"
           echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
-o"
+
 
