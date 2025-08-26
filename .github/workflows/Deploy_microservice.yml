@@ -90,7 +90,7 @@ jobs:
               --format="value(address)")
           fi
           if [ -z "$IP_ADDRESS" ]; then
-            echo "❌ ERROR: Static IP '$STATIC_IP_NAME' not found in '$PROJECT_ID'"
+            echo "❌ ERROR: Static IP '$STATIC_IP_NAME' not found in project '$PROJECT_ID'"
             exit 1
           fi
           echo "STATIC_IP=$IP_ADDRESS" >> $GITHUB_ENV
@@ -99,16 +99,25 @@ jobs:
       # 9. Ensure GKE firewall rules for health checks exist
       - name: Ensure Firewall Rules for LB Health Checks
         run: |
-          VPC_NAME=$(gcloud container clusters describe "$CLUSTER_NAME" \
+          # get the cluster's VPC network (format: projects/PROJECT/global/networks/VPC_NAME)
+          VPC_FULL=$(gcloud container clusters describe "$CLUSTER_NAME" \
             --region "$CLUSTER_LOCATION" \
             --project "$PROJECT_ID" \
             --format="value(networkConfig.network)")
-          echo "Detected VPC: $VPC_NAME"
-          gcloud compute firewall-rules create allow-gke-lb-healthcheck \
-            --network $VPC_NAME \
-            --allow tcp:80,tcp:443,tcp:10256 \
-            --source-ranges 35.191.0.0/16,130.211.0.0/22 \
-            --project "$PROJECT_ID" || true
+          # extract short name (last path segment) if returned as full resource path
+          VPC_NAME=$(basename "$VPC_FULL")
+          echo "Detected VPC: $VPC_NAME (raw: $VPC_FULL)"
+          # create firewall rule if it doesn't already exist
+          if ! gcloud compute firewall-rules describe allow-gke-lb-healthcheck --project="$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud compute firewall-rules create allow-gke-lb-healthcheck \
+              --network "$VPC_NAME" \
+              --allow tcp:80,tcp:443,tcp:10256 \
+              --source-ranges 35.191.0.0/16,130.211.0.0/22 \
+              --project "$PROJECT_ID" || true
+            echo "Created firewall rule allow-gke-lb-healthcheck"
+          else
+            echo "Firewall rule allow-gke-lb-healthcheck already exists"
+          fi
 
       # 10. Install kubectl & Helm
       - name: Set up kubectl
@@ -133,9 +142,10 @@ jobs:
       - name: Debug ingress-nginx on failure
         if: failure()
         run: |
-          echo "❌ ingress-nginx failed, printing logs:"
+          echo "❌ ingress-nginx failed, printing pods & events:"
           kubectl get pods -n ingress-nginx -o wide || true
-          kubectl describe pod -n ingress-nginx | tail -n 50 || true
+          kubectl describe pods -n ingress-nginx || true
+          kubectl get events -n ingress-nginx --sort-by='.lastTimestamp' || true
 
       # 13. Deploy Microservice via Helm
       - name: Deploy Microservice via Helm
@@ -157,3 +167,4 @@ jobs:
           kubectl rollout status deployment/"$RELEASE_NAME" -n "$NAMESPACE" --timeout=180s
           kubectl get pods,svc,ingress -n "$NAMESPACE"
           echo "🌐 Test URL: http://${STATIC_IP}.nip.io"
+
